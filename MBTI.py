@@ -1178,7 +1178,7 @@ elif st.session_state.page == 'result_page':
                 st.markdown(f"<h4 style='text-align: center; color: #555;'>{radar_title}</h4>", unsafe_allow_html=True)
                 
                 fig = draw_radar_chart(st.session_state.user_answers, current_qs)
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"radar_{mbti_type}")
 
         st.write("") 
 
