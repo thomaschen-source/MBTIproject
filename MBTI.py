@@ -4,6 +4,7 @@ from email.mime.text import MIMEText
 import random          
 import pandas as pd    
 from collections import Counter 
+import plotly.graph_objects as go
 # ==========================================# 1. 頁面基礎設定# ==========================================
 
 st.set_page_config(page_title="Multiverse MBTI / 多重宇宙 MBTI", page_icon="🌌")
@@ -45,8 +46,16 @@ st.markdown("""
 
     </style>
 
-""", unsafe_allow_html=True)# ==========================================# 3. 狀態初始化# ==========================================if 'page' not in st.session_state: st.session_state.page = 'language_select'if 'language' not in st.session_state: st.session_state.language = 'zh'if 'target_theme' not in st.session_state: st.session_state.target_theme = Noneif 'tie_themes' not in st.session_state: st.session_state.tie_themes = []if 'final_result' not in st.session_state: st.session_state.final_result = []# ==========================================# 4. 資料庫 (中文完整版 + 英文翻譯版)# ==========================================# 4.1 介面文字 (UI Texts) - 修復 KeyError
+""", unsafe_allow_html=True)
+# ==========================================# 3. 狀態初始化# ==========================================if 'page' not in st.session_state: st.session_state.page = 'language_select'if 'language' not in st.session_state: st.session_state.language = 'zh'if 'target_theme' not in st.session_state: st.session_state.target_theme = Noneif 'tie_themes' not in st.session_state: st.session_state.tie_themes = []if 'final_result' not in st.session_state: st.session_state.final_result = []# ==========================================# 4. 資料庫 (中文完整版 + 英文翻譯版)# ==========================================# 4.1 介面文字 (UI Texts) - 修復 KeyError
+if 'page' not in st.session_state: st.session_state.page = 'language_select'
+if 'language' not in st.session_state: st.session_state.language = 'zh'
+if 'target_theme' not in st.session_state: st.session_state.target_theme = None
+if 'tie_themes' not in st.session_state: st.session_state.tie_themes = []
+if 'final_result' not in st.session_state: st.session_state.final_result = []
 
+# 👇 請補上這一行！
+if 'user_answers' not in st.session_state: st.session_state.user_answers = []
 UI_TEXT = {
 
     'zh': {
@@ -793,7 +802,76 @@ def send_email_dual(user_email, mbti_types, universe, lang):
         return True
     except:
         return False
+# ==========================================
+# 5.5 (新增) 雷達圖繪製函數 (修正參數版)
+# ==========================================
+def draw_radar_chart(user_answers, question_list):
+    # 1. 先重新計算一次原始分數
+    raw_scores = {key: 0 for key in ["ESTJ", "ENTJ", "ESFJ", "ENFJ", "ISTJ", "ISFJ", "INTJ", "INFJ", "ESTP", "ESFP", "ENTP", "ENFP", "ISTP", "ISFP", "INTP", "INFP"]}
+    
+    for i, choice_index in enumerate(user_answers):
+        if choice_index is not None:
+            # 安全檢查
+            if i < len(question_list) and choice_index < len(question_list[i]["opts"]):
+                points_table = question_list[i]["opts"][choice_index]["scores"]
+                for mbti, points in points_table.items():
+                    if mbti in raw_scores:
+                        raw_scores[mbti] += points
 
+    # 2. 將 16 人格分數轉換成 5 大 RPG 能力值
+    stats = {
+        "🧠 Logic": 0,
+        "❤️ Empathy": 0,
+        "⚡ Action": 0,
+        "🛡️ Order": 0,
+        "✨ Creative": 0
+    }
+    
+    for mbti, score in raw_scores.items():
+        if 'T' in mbti: stats["🧠 Logic"] += score
+        if 'F' in mbti: stats["❤️ Empathy"] += score
+        if 'P' in mbti: stats["⚡ Action"] += score
+        if 'J' in mbti: stats["🛡️ Order"] += score
+        if 'N' in mbti: stats["✨ Creative"] += score
+        if 'S' in mbti: stats["⚡ Action"] += score * 0.5 
+        
+    # 3. 數據標準化
+    max_val = max(stats.values()) if max(stats.values()) > 0 else 1
+    r_values = [int((v / max_val) * 100) for v in stats.values()]
+    theta_labels = list(stats.keys())
+    
+    # 為了讓雷達圖閉合
+    r_values.append(r_values[0])
+    theta_labels.append(theta_labels[0])
+
+    # 4. 使用 Plotly 畫圖 (修正參數名稱)
+    fig = go.Figure(
+        data=go.Scatterpolar(
+            r=r_values,
+            theta=theta_labels,
+            fill='toself',
+            name='Ability',
+            # ★★★ 修正點在這裡 ★★★
+            line=dict(color='#FF0099'),     # 改成字典格式
+            fillcolor='rgba(255, 0, 153, 0.2)' # 去掉底線
+        )
+    )
+    
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(
+                visible=True,
+                range=[0, 100],
+                showticklabels=False
+            )
+        ),
+        showlegend=False,
+        margin=dict(l=40, r=40, t=40, b=40),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)'
+    )
+    
+    return fig
 # ==========================================
 # 5. 判讀邏輯函數
 # ==========================================
@@ -999,6 +1077,7 @@ elif st.session_state.page == 'main_quiz':
                     st.error(txt['error_incomplete'])
                 else:
                     # 計算時使用 questions 裡面的 scores，分數不會錯
+                    st.session_state.user_answers = user_answers
                     result_mbti = calculate_mbti(user_answers, questions)
                     st.session_state.final_result = result_mbti
                     st.session_state.page = 'result_page'
@@ -1009,6 +1088,15 @@ elif st.session_state.page == 'result_page':
     final_results = st.session_state.final_result
     current_theme = st.session_state.get('target_theme', 'zombie')
     
+    # 1. ★★★ 修正點：根據語言選擇對應的資料庫 ★★★
+    # 必須先定義 current_qs 和 current_info
+    if lang == 'zh':
+        current_qs = ALL_QUIZZES_ZH.get(current_theme)
+        current_info = MBTI_INFO_ZH
+    else:
+        current_qs = ALL_QUIZZES_EN.get(current_theme)
+        current_info = MBTI_INFO_EN
+
     if 'has_balloons' not in st.session_state:
         st.balloons()
         st.session_state.has_balloons = True
@@ -1020,13 +1108,16 @@ elif st.session_state.page == 'result_page':
 
     st.write("") 
 
-    # 顯示結果卡片
+    # 顯示結果卡片迴圈
     for mbti_type in final_results:
         default_info = {"title": "Unknown", "color": ["#333", "#333"], "desc": "No Data", "match": "?", "clash": "?", "strengths": [], "weaknesses": [], "career": {}}
-        # 這裡會根據語言抓取 ZH 或 EN 的資料
+        
+        # 2. ★★★ 修正點：使用 current_info 而不是 MBTI_INFO ★★★
         info = current_info.get(mbti_type, default_info)
+        
         c1, c2 = info['color']
         
+        # 標題與稱號
         st.markdown(f"""
         <div style="text-align: center;">
             <h1 style="font-size: 80px; margin: 0; background: -webkit-linear-gradient(45deg, {c1}, {c2}); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
@@ -1036,13 +1127,18 @@ elif st.session_state.page == 'result_page':
         </div>
         """, unsafe_allow_html=True)
         
+        # 裝飾條 & 描述
         st.markdown(f"""
+        <div style="display: flex; gap: 5px; margin-bottom: 20px;">
+            <div style="flex: 1; height: 10px; background-color: {c1}; border-radius: 5px;"></div>
+            <div style="flex: 1; height: 10px; background-color: {c2}; border-radius: 5px;"></div>
+        </div>
         <div style="background: rgba(255,255,255,0.5); padding: 20px; border-radius: 10px; border-left: 5px solid {c1}; margin-bottom: 20px;">
             <p style="font-size: 18px; line-height: 1.8; color: #333;">{info['desc']}</p>
         </div>
         """, unsafe_allow_html=True)
         
-        # 社交
+        # 社交區塊
         col_rel1, col_rel2 = st.columns(2)
         with col_rel1:
             st.markdown(f"""
@@ -1061,7 +1157,7 @@ elif st.session_state.page == 'result_page':
             
         st.write("") 
 
-        # 優劣勢
+        # 優勢與盲點
         col_an1, col_an2 = st.columns(2)
         with col_an1:
             st.markdown(f"<h3 style='color: {c1}; border-bottom: 2px solid {c1};'>{txt['strength']}</h3>", unsafe_allow_html=True)
@@ -1074,11 +1170,22 @@ elif st.session_state.page == 'result_page':
         
         st.write("") 
 
-        # 職業 (處理字典結構)
+        # 能力雷達圖 (至中)
+        if current_qs and st.session_state.user_answers:
+            c_left, c_center, c_right = st.columns([1, 3, 1])
+            with c_center:
+                radar_title = "📊 Ability Radar" if lang == 'en' else "📊 能力雷達分析"
+                st.markdown(f"<h4 style='text-align: center; color: #555;'>{radar_title}</h4>", unsafe_allow_html=True)
+                
+                fig = draw_radar_chart(st.session_state.user_answers, current_qs)
+                st.plotly_chart(fig, use_container_width=True)
+
+        st.write("") 
+
+        # 職業推薦
         display_title = txt['career_title']
         career_obj = info.get('career', {})
         if isinstance(career_obj, dict):
-            # 嘗試抓取當前劇本的職業，如果沒有就抓第一個
             career_text = career_obj.get(current_theme, list(career_obj.values())[0] if career_obj else "Unknown")
         else:
             career_text = str(career_obj)
@@ -1092,7 +1199,7 @@ elif st.session_state.page == 'result_page':
 
         st.write("---") 
 
-    # 寄信功能
+    # 3. ★★★ 修正點：UI文字 ID 修正 (對應 UI_TEXT 字典) ★★★
     st.write(f"### {txt['email_section']}")
     with st.expander(txt['email_section']):
         user_email = st.text_input(txt['email_label'], placeholder="name@example.com")
@@ -1102,7 +1209,6 @@ elif st.session_state.page == 'result_page':
                 st.error("Email required!")
             else:
                 with st.spinner("Sending..."):
-                    # 使用新的雙語寄信函數
                     success = send_email_dual(user_email, final_results, current_theme, lang)
                     if success:
                         st.success(f"Sent to {user_email}!")
@@ -1119,7 +1225,6 @@ elif st.session_state.page == 'result_page':
         if 'has_balloons' in st.session_state:
             del st.session_state.has_balloons
         st.rerun()
-
 # ==========================================
 # 10. (開發者工具) 分數平衡檢查器 - 雙密鑰
 # ==========================================
